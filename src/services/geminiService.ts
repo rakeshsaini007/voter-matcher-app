@@ -12,23 +12,43 @@ export interface VoterRecord {
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 
 export async function matchEpicNumbers(loksabha: VoterRecord[], vidhansabha: VoterRecord[]): Promise<VoterRecord[]> {
-  // First, try exact matching to reduce the load on Gemini
   const matchedLoksabha = [...loksabha];
   const unmatchedIndices: number[] = [];
 
-  matchedLoksabha.forEach((record, index) => {
-    // Simple normalization: remove spaces and common suffixes
-    const normalize = (s: string) => s.replace(/\s+/g, '').toLowerCase();
-    
-    const match = vidhansabha.find(v => 
-      normalize(v.voterName) === normalize(record.voterName) &&
-      normalize(v.relativeName) === normalize(record.relativeName) &&
-      normalize(v.houseNo) === normalize(record.houseNo)
-    );
+  // Helper for normalization
+  const norm = (s: string) => String(s || "").replace(/\s+/g, "").toLowerCase();
 
-    if (match) {
-      record.epicNo = match.epicNo;
-    } else {
+  matchedLoksabha.forEach((record, index) => {
+    const name = record.voterName.trim();
+    const relative = record.relativeName.trim();
+    const house = record.houseNo.trim();
+
+    let found = false;
+    for (const v of vidhansabha) {
+      const vsName = v.voterName.trim();
+      const vsRelative = v.relativeName.trim();
+      const vsHouse = v.houseNo.trim();
+
+      // Exact Match
+      if (vsName === name && vsRelative === relative && vsHouse === house) {
+        record.epicNo = v.epicNo;
+        found = true;
+        break;
+      }
+
+      // Soft Match (Ignore spaces and common suffixes)
+      if (norm(vsName).startsWith(norm(name).substring(0, 4)) && vsHouse === house) {
+        const n1 = norm(vsName);
+        const n2 = norm(name);
+        if (n1.includes(n2) || n2.includes(n1)) {
+           record.epicNo = v.epicNo;
+           found = true;
+           break;
+        }
+      }
+    }
+
+    if (!found) {
       unmatchedIndices.push(index);
     }
   });
@@ -36,19 +56,16 @@ export async function matchEpicNumbers(loksabha: VoterRecord[], vidhansabha: Vot
   if (unmatchedIndices.length === 0) return matchedLoksabha;
 
   // For unmatched records, use Gemini for fuzzy matching
-  // We'll process them in batches to avoid token limits
   const batchSize = 20;
   for (let i = 0; i < unmatchedIndices.length; i += batchSize) {
     const currentBatchIndices = unmatchedIndices.slice(i, i + batchSize);
     const currentLoksabhaBatch = currentBatchIndices.map(idx => matchedLoksabha[idx]);
     
-    // Provide relevant context from Vidhansabha (only potential matches to save tokens)
-    // For each record in batch, find potential candidates in Vidhansabha
+    // Provide relevant context from Vidhansabha
     const candidates = new Set<VoterRecord>();
     currentLoksabhaBatch.forEach(record => {
       vidhansabha.forEach(v => {
-        // If house number matches or name starts with same character
-        if (v.houseNo === record.houseNo || v.voterName[0] === record.voterName[0]) {
+        if (v.houseNo === record.houseNo || norm(v.voterName)[0] === norm(record.voterName)[0]) {
           candidates.add(v);
         }
       });
@@ -59,11 +76,11 @@ export async function matchEpicNumbers(loksabha: VoterRecord[], vidhansabha: Vot
         model: "gemini-3-flash-preview",
         contents: `You are a voter list reconciliation expert. Match the EPIC numbers from the Vidhansabha list to the Loksabha list. 
         
-        CRITICAL RULES:
-        1. Names may have spelling variations (e.g., 'हरिकिशन' vs 'हरकृष्ण').
-        2. Names may have honorifics or suffixes like 'सिंह', 'कौर', 'देवी', 'कुमारी', 'राम', 'लाल' which might be present in one list but not the other.
-        3. Relatives' names (Father/Husband) and House Numbers should be used to confirm matches.
-        4. Only return a match if you are highly confident.
+        HINDI NAME MATCHING RULES:
+        1. Spelling variations are common: 'गगनदीप' vs 'गगन दीप', 'हरिकिशन' vs 'हरकृष्ण'.
+        2. Honorifics/Suffixes can be missing: 'सिंह', 'कौर', 'देवी', 'कुमारी', 'राम', 'लाल'.
+        3. Use Relative Name and House Number to confirm.
+        4. If House Number matches and names are phonetically similar, it is likely a match.
         
         Loksabha List (to fill):
         ${JSON.stringify(currentLoksabhaBatch.map(r => ({ id: r.id, name: r.voterName, relative: r.relativeName, house: r.houseNo })))}
@@ -71,10 +88,10 @@ export async function matchEpicNumbers(loksabha: VoterRecord[], vidhansabha: Vot
         Vidhansabha List (reference):
         ${JSON.stringify(Array.from(candidates).map(r => ({ epic: r.epicNo, name: r.voterName, relative: r.relativeName, house: r.houseNo })))}
         
-        Return a JSON array of objects with 'id' from Loksabha and 'epic' from Vidhansabha. If no match found, use null for epic.`,
+        Return a JSON array: [{"id": string, "epic": string|null}]`,
         config: {
           responseMimeType: "application/json",
-          temperature: 0.1,
+          temperature: 0,
           responseSchema: {
             type: Type.ARRAY,
             items: {

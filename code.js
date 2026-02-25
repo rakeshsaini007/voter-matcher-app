@@ -43,7 +43,6 @@ function syncAndMatch() {
   const lsData = loksabhaSheet.getDataRange().getValues();
   const vsData = vidhansabhaSheet.getDataRange().getValues();
 
-  // Headers
   const lsHeaders = lsData[0];
   const vsHeaders = vsData[0];
 
@@ -59,39 +58,56 @@ function syncAndMatch() {
 
   if (epicColIdx === -1) throw new Error("Column 'EPIC क्रमांक' not found in loksabha sheet.");
 
-  const results = [];
   const unmatched = [];
 
-  // 1. Exact Matching
+  // Helper for normalization
+  const norm = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
+
+  // 1. Exact & Soft Matching
   for (let i = 1; i < lsData.length; i++) {
     const lsRow = lsData[i];
     const name = String(lsRow[lsNameIdx]).trim();
     const relative = String(lsRow[lsRelativeIdx]).trim();
     const house = String(lsRow[lsHouseIdx]).trim();
+    
+    if (!name) continue;
 
     let found = false;
     for (let j = 1; j < vsData.length; j++) {
       const vsRow = vsData[j];
-      if (
-        String(vsRow[vsNameIdx]).trim() === name &&
-        String(vsRow[vsRelativeIdx]).trim() === relative &&
-        String(vsRow[vsHouseIdx]).trim() === house
-      ) {
+      const vsName = String(vsRow[vsNameIdx]).trim();
+      const vsRelative = String(vsRow[vsRelativeIdx]).trim();
+      const vsHouse = String(vsRow[vsHouseIdx]).trim();
+
+      // Exact Match
+      if (vsName === name && vsRelative === relative && vsHouse === house) {
         lsData[i][epicColIdx] = vsRow[vsEpicIdx];
         found = true;
         break;
+      }
+      
+      // Soft Match (Ignore spaces and common suffixes)
+      if (norm(vsName).startsWith(norm(name).substring(0, 4)) && vsHouse === house) {
+        // This is a candidate, but let's be careful. 
+        // If the normalized names are very similar, we accept it.
+        const n1 = norm(vsName);
+        const n2 = norm(name);
+        if (n1.includes(n2) || n2.includes(n1)) {
+           lsData[i][epicColIdx] = vsRow[vsEpicIdx];
+           found = true;
+           break;
+        }
       }
     }
     if (!found) unmatched.push({ rowIndex: i + 1, name, relative, house });
   }
 
-  // Always update the sheet with exact matches first
+  // Update sheet with initial matches
   loksabhaSheet.getDataRange().setValues(lsData);
 
-  // 2. Fuzzy Matching with Gemini (if API key provided)
-  if (GEMINI_API_KEY && GEMINI_API_KEY !== 'YOUR_GEMINI_API_KEY' && unmatched.length > 0) {
-    // Process in small batches to avoid GAS timeout
-    const batchSize = 10;
+  // 2. Advanced Fuzzy Matching with Gemini
+  if (GEMINI_API_KEY && GEMINI_API_KEY !== 'AIzaSyDMQGOWn26l5fVBmmoybURsfKh_TgrMBeg' && unmatched.length > 0) {
+    const batchSize = 15;
     const vsReference = vsData.slice(1).map(r => ({
       epic: r[vsEpicIdx],
       name: r[vsNameIdx],
@@ -101,8 +117,14 @@ function syncAndMatch() {
 
     for (let i = 0; i < unmatched.length; i += batchSize) {
       const batch = unmatched.slice(i, i + batchSize);
+      
+      // Filter reference to only relevant candidates to save tokens and improve accuracy
+      const relevantRef = vsReference.filter(v => 
+        batch.some(b => v.house === b.house || norm(v.name)[0] === norm(b.name)[0])
+      );
+
       try {
-        const matchedBatch = callGeminiFuzzyMatch(batch, vsReference);
+        const matchedBatch = callGeminiFuzzyMatch(batch, relevantRef);
         if (matchedBatch && matchedBatch.length > 0) {
           matchedBatch.forEach(m => {
             if (m.epic) {
@@ -120,29 +142,26 @@ function syncAndMatch() {
 }
 
 function callGeminiFuzzyMatch(batch, reference) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
   
   const prompt = `You are a voter list reconciliation expert. Match the EPIC numbers from the Reference List to the Target List.
   
-  CRITICAL RULES:
-  1. Names may have spelling variations (e.g., 'हरिकिशन' vs 'हरकृष्ण').
-  2. Names may have honorifics or suffixes like 'सिंह', 'कौर', 'देवी', 'कुमारी', 'राम', 'लाल' which might be present in one list but not the other.
-  3. Relatives' names (Father/Husband) and House Numbers should be used to confirm matches.
-  4. Only return a match if you are highly confident.
+  HINDI NAME MATCHING RULES:
+  1. Spelling variations are common: 'गगनदीप' vs 'गगन दीप', 'हरिकिशन' vs 'हरकृष्ण'.
+  2. Honorifics/Suffixes can be missing: 'सिंह', 'कौर', 'देवी', 'कुमारी', 'राम', 'लाल'.
+  3. Use Relative Name and House Number to confirm.
+  4. If House Number matches and names are phonetically similar, it is likely a match.
   
-  Target List (to fill): 
-  ${JSON.stringify(batch)}
+  Target List: ${JSON.stringify(batch)}
+  Reference List: ${JSON.stringify(reference)}
   
-  Reference List (source of EPIC): 
-  ${JSON.stringify(reference)}
-  
-  Return ONLY a JSON array of objects: [{"rowIndex": number, "epic": string|null}]`;
+  Return ONLY a JSON array: [{"rowIndex": number, "epic": string|null}]`;
 
   const payload = {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: { 
       responseMimeType: "application/json",
-      temperature: 0.1 // Lower temperature for more deterministic matching
+      temperature: 0
     }
   };
 
@@ -154,13 +173,16 @@ function callGeminiFuzzyMatch(batch, reference) {
   };
 
   const response = UrlFetchApp.fetch(url, options);
-  const json = JSON.parse(response.getContentText());
+  const responseText = response.getContentText();
+  const json = JSON.parse(responseText);
   
   try {
-    const text = json.candidates[0].content.parts[0].text;
+    let text = json.candidates[0].content.parts[0].text;
+    // Clean up markdown if present
+    text = text.replace(/```json/g, "").replace(/```/g, "").trim();
     return JSON.parse(text);
   } catch (e) {
-    console.error("Gemini Error: " + e);
+    console.error("Gemini Error: " + responseText);
     return [];
   }
 }
