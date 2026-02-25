@@ -85,6 +85,9 @@ function syncAndMatch() {
     if (!found) unmatched.push({ rowIndex: i + 1, name, relative, house });
   }
 
+  // Always update the sheet with exact matches first
+  loksabhaSheet.getDataRange().setValues(lsData);
+
   // 2. Fuzzy Matching with Gemini (if API key provided)
   if (GEMINI_API_KEY && GEMINI_API_KEY !== 'YOUR_GEMINI_API_KEY' && unmatched.length > 0) {
     // Process in small batches to avoid GAS timeout
@@ -98,17 +101,19 @@ function syncAndMatch() {
 
     for (let i = 0; i < unmatched.length; i += batchSize) {
       const batch = unmatched.slice(i, i + batchSize);
-      const matchedBatch = callGeminiFuzzyMatch(batch, vsReference);
-      
-      matchedBatch.forEach(m => {
-        if (m.epic) {
-          loksabhaSheet.getRange(m.rowIndex, epicColIdx + 1).setValue(m.epic);
+      try {
+        const matchedBatch = callGeminiFuzzyMatch(batch, vsReference);
+        if (matchedBatch && matchedBatch.length > 0) {
+          matchedBatch.forEach(m => {
+            if (m.epic) {
+              loksabhaSheet.getRange(m.rowIndex, epicColIdx + 1).setValue(m.epic);
+            }
+          });
         }
-      });
+      } catch (e) {
+        console.error("Batch Error: " + e);
+      }
     }
-  } else {
-    // Update exact matches back to sheet
-    loksabhaSheet.getDataRange().setValues(lsData);
   }
 
   return { success: true, matchedCount: lsData.length - 1 - unmatched.length, remainingUnmatched: unmatched.length };

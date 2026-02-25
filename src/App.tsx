@@ -89,14 +89,13 @@ export default function App() {
     setGasStatus('Connecting to Google Sheets...');
 
     try {
+      // Using text/plain to avoid CORS preflight issues with GAS
       const response = await fetch(gasUrl, {
         method: 'POST',
-        mode: 'no-cors', // GAS Web Apps often require no-cors for simple triggers
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ action: 'sync_and_match' })
       });
       
-      // Since no-cors doesn't allow reading response, we assume success or instruct user
       setGasStatus('Request sent! Check your Google Sheet for updates.');
       setTimeout(() => setGasStatus(null), 5000);
     } catch (err) {
