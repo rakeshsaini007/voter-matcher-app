@@ -122,14 +122,28 @@ function syncAndMatch() {
 function callGeminiFuzzyMatch(batch, reference) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`;
   
-  const prompt = `Match the EPIC numbers from the reference list to the target list. 
-  Target List: ${JSON.stringify(batch)}
-  Reference List: ${JSON.stringify(reference)}
-  Return JSON array: [{"rowIndex": number, "epic": string|null}]`;
+  const prompt = `You are a voter list reconciliation expert. Match the EPIC numbers from the Reference List to the Target List.
+  
+  CRITICAL RULES:
+  1. Names may have spelling variations (e.g., 'हरिकिशन' vs 'हरकृष्ण').
+  2. Names may have honorifics or suffixes like 'सिंह', 'कौर', 'देवी', 'कुमारी', 'राम', 'लाल' which might be present in one list but not the other.
+  3. Relatives' names (Father/Husband) and House Numbers should be used to confirm matches.
+  4. Only return a match if you are highly confident.
+  
+  Target List (to fill): 
+  ${JSON.stringify(batch)}
+  
+  Reference List (source of EPIC): 
+  ${JSON.stringify(reference)}
+  
+  Return ONLY a JSON array of objects: [{"rowIndex": number, "epic": string|null}]`;
 
   const payload = {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { responseMimeType: "application/json" }
+    generationConfig: { 
+      responseMimeType: "application/json",
+      temperature: 0.1 // Lower temperature for more deterministic matching
+    }
   };
 
   const options = {

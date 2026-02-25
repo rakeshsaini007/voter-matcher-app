@@ -57,8 +57,13 @@ export async function matchEpicNumbers(loksabha: VoterRecord[], vidhansabha: Vot
     try {
       const response = await ai.models.generateContent({
         model: "gemini-3-flash-preview",
-        contents: `Match the EPIC numbers from the Vidhansabha list to the Loksabha list. 
-        Names might have spelling variations or honorifics (like 'सिंह', 'कौर', 'देवी').
+        contents: `You are a voter list reconciliation expert. Match the EPIC numbers from the Vidhansabha list to the Loksabha list. 
+        
+        CRITICAL RULES:
+        1. Names may have spelling variations (e.g., 'हरिकिशन' vs 'हरकृष्ण').
+        2. Names may have honorifics or suffixes like 'सिंह', 'कौर', 'देवी', 'कुमारी', 'राम', 'लाल' which might be present in one list but not the other.
+        3. Relatives' names (Father/Husband) and House Numbers should be used to confirm matches.
+        4. Only return a match if you are highly confident.
         
         Loksabha List (to fill):
         ${JSON.stringify(currentLoksabhaBatch.map(r => ({ id: r.id, name: r.voterName, relative: r.relativeName, house: r.houseNo })))}
@@ -69,6 +74,7 @@ export async function matchEpicNumbers(loksabha: VoterRecord[], vidhansabha: Vot
         Return a JSON array of objects with 'id' from Loksabha and 'epic' from Vidhansabha. If no match found, use null for epic.`,
         config: {
           responseMimeType: "application/json",
+          temperature: 0.1,
           responseSchema: {
             type: Type.ARRAY,
             items: {
