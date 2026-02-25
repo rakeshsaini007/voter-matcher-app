@@ -1,0 +1,5 @@
+{
+  "name": "Voter List EPIC Matcher",
+  "description": "A tool to match and fill EPIC numbers between Loksabha and Vidhansabha voter lists using AI-powered fuzzy matching.",
+  "requestFramePermissions": []
+}
