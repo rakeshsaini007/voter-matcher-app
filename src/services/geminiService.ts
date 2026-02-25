@@ -15,8 +15,19 @@ export async function matchEpicNumbers(loksabha: VoterRecord[], vidhansabha: Vot
   const matchedLoksabha = [...loksabha];
   const unmatchedIndices: number[] = [];
 
-  // Helper for normalization
-  const norm = (s: string) => String(s || "").replace(/\s+/g, "").toLowerCase();
+  // Helper for advanced Hindi normalization
+  const norm = (s: string) => {
+    if (!s) return "";
+    let n = String(s).trim().replace(/\s+/g, "");
+    const suffixes = ["सिंह", "कौर", "देवी", "कुमारी", "राम", "लाल", "कली", "वती", "देई", "देवी"];
+    suffixes.forEach(suffix => {
+      if (n.endsWith(suffix) && n.length > suffix.length) {
+        n = n.substring(0, n.length - suffix.length);
+      }
+    });
+    n = n.replace(/[िी]/g, "इ").replace(/[ुू]/g, "उ").replace(/[शष]/g, "श");
+    return n.toLowerCase();
+  };
 
   matchedLoksabha.forEach((record, index) => {
     const name = record.voterName.trim();

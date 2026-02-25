@@ -60,8 +60,21 @@ function syncAndMatch() {
 
   const unmatched = [];
 
-  // Helper for normalization
-  const norm = (s) => String(s || "").replace(/\s+/g, "").toLowerCase();
+  // Helper for advanced Hindi normalization
+  const norm = (s) => {
+    if (!s) return "";
+    let n = String(s).trim().replace(/\s+/g, "");
+    // Remove common suffixes for comparison
+    const suffixes = ["सिंह", "कौर", "देवी", "कुमारी", "राम", "लाल", "कली", "वती", "देई", "देवी"];
+    suffixes.forEach(suffix => {
+      if (n.endsWith(suffix) && n.length > suffix.length) {
+        n = n.substring(0, n.length - suffix.length);
+      }
+    });
+    // Basic phonetic normalization (vowels)
+    n = n.replace(/[िी]/g, "इ").replace(/[ुू]/g, "उ").replace(/[शष]/g, "श");
+    return n.toLowerCase();
+  };
 
   // 1. Exact & Soft Matching
   for (let i = 1; i < lsData.length; i++) {
