@@ -21,26 +21,27 @@ export async function matchEpicNumbers(loksabha: VoterRecord[], vidhansabha: Vot
   matchedLoksabha.forEach((record, index) => {
     const name = record.voterName.trim();
     const relative = record.relativeName.trim();
-    const house = record.houseNo.trim();
 
     let found = false;
     for (const v of vidhansabha) {
       const vsName = v.voterName.trim();
       const vsRelative = v.relativeName.trim();
-      const vsHouse = v.houseNo.trim();
 
-      // Exact Match
-      if (vsName === name && vsRelative === relative && vsHouse === house) {
+      // Exact Match (Name + Relative)
+      if (vsName === name && vsRelative === relative) {
         record.epicNo = v.epicNo;
         found = true;
         break;
       }
 
       // Soft Match (Ignore spaces and common suffixes)
-      if (norm(vsName).startsWith(norm(name).substring(0, 4)) && vsHouse === house) {
+      if (norm(vsName).startsWith(norm(name).substring(0, 4))) {
         const n1 = norm(vsName);
         const n2 = norm(name);
-        if (n1.includes(n2) || n2.includes(n1)) {
+        const r1 = norm(vsRelative);
+        const r2 = norm(relative);
+        
+        if ((n1.includes(n2) || n2.includes(n1)) && (r1.includes(r2) || r2.includes(r1))) {
            record.epicNo = v.epicNo;
            found = true;
            break;
@@ -65,7 +66,7 @@ export async function matchEpicNumbers(loksabha: VoterRecord[], vidhansabha: Vot
     const candidates = new Set<VoterRecord>();
     currentLoksabhaBatch.forEach(record => {
       vidhansabha.forEach(v => {
-        if (v.houseNo === record.houseNo || norm(v.voterName)[0] === norm(record.voterName)[0]) {
+        if (norm(v.voterName)[0] === norm(record.voterName)[0]) {
           candidates.add(v);
         }
       });
@@ -79,14 +80,15 @@ export async function matchEpicNumbers(loksabha: VoterRecord[], vidhansabha: Vot
         HINDI NAME MATCHING RULES:
         1. Spelling variations are common: 'गगनदीप' vs 'गगन दीप', 'हरिकिशन' vs 'हरकृष्ण'.
         2. Honorifics/Suffixes can be missing: 'सिंह', 'कौर', 'देवी', 'कुमारी', 'राम', 'लाल'.
-        3. Use Relative Name and House Number to confirm.
-        4. If House Number matches and names are phonetically similar, it is likely a match.
+        3. Use Relative Name to confirm.
+        4. IGNORE House Numbers entirely.
+        5. If names and relatives are phonetically similar, it is likely a match.
         
         Loksabha List (to fill):
-        ${JSON.stringify(currentLoksabhaBatch.map(r => ({ id: r.id, name: r.voterName, relative: r.relativeName, house: r.houseNo })))}
+        ${JSON.stringify(currentLoksabhaBatch.map(r => ({ id: r.id, name: r.voterName, relative: r.relativeName })))}
         
         Vidhansabha List (reference):
-        ${JSON.stringify(Array.from(candidates).map(r => ({ epic: r.epicNo, name: r.voterName, relative: r.relativeName, house: r.houseNo })))}
+        ${JSON.stringify(Array.from(candidates).map(r => ({ epic: r.epicNo, name: r.voterName, relative: r.relativeName })))}
         
         Return a JSON array: [{"id": string, "epic": string|null}]`,
         config: {

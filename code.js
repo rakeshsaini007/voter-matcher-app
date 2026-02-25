@@ -68,7 +68,6 @@ function syncAndMatch() {
     const lsRow = lsData[i];
     const name = String(lsRow[lsNameIdx]).trim();
     const relative = String(lsRow[lsRelativeIdx]).trim();
-    const house = String(lsRow[lsHouseIdx]).trim();
     
     if (!name) continue;
 
@@ -77,50 +76,50 @@ function syncAndMatch() {
       const vsRow = vsData[j];
       const vsName = String(vsRow[vsNameIdx]).trim();
       const vsRelative = String(vsRow[vsRelativeIdx]).trim();
-      const vsHouse = String(vsRow[vsHouseIdx]).trim();
 
-      // Exact Match
-      if (vsName === name && vsRelative === relative && vsHouse === house) {
+      // Exact Match (Name + Relative)
+      if (vsName === name && vsRelative === relative) {
         lsData[i][epicColIdx] = vsRow[vsEpicIdx];
         found = true;
         break;
       }
       
       // Soft Match (Ignore spaces and common suffixes)
-      if (norm(vsName).startsWith(norm(name).substring(0, 4)) && vsHouse === house) {
-        // This is a candidate, but let's be careful. 
-        // If the normalized names are very similar, we accept it.
+      if (norm(vsName).startsWith(norm(name).substring(0, 4))) {
         const n1 = norm(vsName);
         const n2 = norm(name);
-        if (n1.includes(n2) || n2.includes(n1)) {
+        const r1 = norm(vsRelative);
+        const r2 = norm(relative);
+        
+        // Match if names are similar AND relatives are similar
+        if ((n1.includes(n2) || n2.includes(n1)) && (r1.includes(r2) || r2.includes(r1))) {
            lsData[i][epicColIdx] = vsRow[vsEpicIdx];
            found = true;
            break;
         }
       }
     }
-    if (!found) unmatched.push({ rowIndex: i + 1, name, relative, house });
+    if (!found) unmatched.push({ rowIndex: i + 1, name, relative });
   }
 
   // Update sheet with initial matches
   loksabhaSheet.getDataRange().setValues(lsData);
 
   // 2. Advanced Fuzzy Matching with Gemini
-  if (GEMINI_API_KEY && GEMINI_API_KEY !== 'AIzaSyDMQGOWn26l5fVBmmoybURsfKh_TgrMBeg' && unmatched.length > 0) {
+  if (GEMINI_API_KEY && GEMINI_API_KEY.length > 10 && unmatched.length > 0) {
     const batchSize = 15;
     const vsReference = vsData.slice(1).map(r => ({
       epic: r[vsEpicIdx],
       name: r[vsNameIdx],
-      relative: r[vsRelativeIdx],
-      house: r[vsHouseIdx]
+      relative: r[vsRelativeIdx]
     }));
 
     for (let i = 0; i < unmatched.length; i += batchSize) {
       const batch = unmatched.slice(i, i + batchSize);
       
-      // Filter reference to only relevant candidates to save tokens and improve accuracy
+      // Filter reference to only relevant candidates
       const relevantRef = vsReference.filter(v => 
-        batch.some(b => v.house === b.house || norm(v.name)[0] === norm(b.name)[0])
+        batch.some(b => norm(v.name)[0] === norm(b.name)[0])
       );
 
       try {
@@ -149,8 +148,9 @@ function callGeminiFuzzyMatch(batch, reference) {
   HINDI NAME MATCHING RULES:
   1. Spelling variations are common: 'गगनदीप' vs 'गगन दीप', 'हरिकिशन' vs 'हरकृष्ण'.
   2. Honorifics/Suffixes can be missing: 'सिंह', 'कौर', 'देवी', 'कुमारी', 'राम', 'लाल'.
-  3. Use Relative Name and House Number to confirm.
-  4. If House Number matches and names are phonetically similar, it is likely a match.
+  3. Use Relative Name to confirm.
+  4. IGNORE House Numbers entirely.
+  5. If names and relatives are phonetically similar, it is likely a match.
   
   Target List: ${JSON.stringify(batch)}
   Reference List: ${JSON.stringify(reference)}
